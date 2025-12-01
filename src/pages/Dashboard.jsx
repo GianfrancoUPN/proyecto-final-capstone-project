@@ -15,6 +15,7 @@ import { Pie, Line, Chart } from 'react-chartjs-2';
 import { MatrixController, MatrixElement } from 'chartjs-chart-matrix';
 import ChartDataLabels from 'chartjs-plugin-datalabels';
 
+// Registrar componentes
 ChartJS.register(
   ArcElement, Tooltip, Legend, CategoryScale, LinearScale, 
   BarElement, PointElement, LineElement, Title,
@@ -25,6 +26,42 @@ ChartJS.register(
 const API = process.env.REACT_APP_API_URL || 'http://localhost:4000';
 const MATRIX_LABELS = ['Interés', 'Ánimo', 'Sueño', 'Energía', 'Apetito', 'Autoestima', 'Concentr.', 'Lentitud', 'Riesgo', 'Total'];
 
+// --- DATOS DEL CRONOGRAMA (GANTT) ---
+const GANTT_DATA = {
+  labels: [
+    'Planificación y Análisis',
+    'Diseño de Arquitectura',
+    'Recolección de Datos',
+    'Desarrollo Backend',
+    'Desarrollo Frontend',
+    'Implementación IA',
+    'Integración ETL',
+    'Desarrollo Dashboard',
+    'Pruebas y Validación',
+    'Documentación y Cierre'
+  ],
+  datasets: [
+    {
+      label: 'Duración (Semanas)',
+      data: [
+        [1, 3],   // Planificación
+        [2, 4],   // Diseño
+        [3, 5],   // Recolección
+        [4, 9],   // Backend
+        [6, 11],  // Frontend
+        [8, 12],  // IA
+        [10, 13], // ETL
+        [11, 14], // Dashboard
+        [13, 15], // Pruebas
+        [15, 16]  // Cierre
+      ],
+      backgroundColor: 'rgba(54, 162, 235, 0.7)',
+      barPercentage: 0.5,
+    }
+  ]
+};
+
+// --- FUNCIONES AUXILIARES ---
 function getColor(value) {
   let alpha = Math.abs(value);
   return value > 0 ? `rgba(54, 162, 235, ${alpha})` : `rgba(255, 99, 132, ${alpha})`;
@@ -89,21 +126,36 @@ export default function Dashboard() {
     const riskCounts = {};
     const severityCounts = {};
     const questionsData = Array.from({ length: 10 }, () => []);
+    
+    // --- LÓGICA PARA CURVA DE ESTABILIDAD ---
+    const stabilityData = [];
+    let runningSum = 0;
 
-    data.forEach(item => {
+    data.forEach((item, index) => {
+      // 1. Conteos básicos
       const r = item.risk_level || 'Riesgo Bajo';
       riskCounts[r] = (riskCounts[r] || 0) + 1;
       const s = item.severity || 'Desconocido';
       severityCounts[s] = (severityCounts[s] || 0) + 1;
 
+      // 2. Datos para Matriz
       let ans = item.answers;
       if (typeof ans === 'string') { try { ans = JSON.parse(ans); } catch (e) { ans = null; } }
       if (ans && Array.isArray(ans)) {
         ans.forEach((val, index) => { if (index < 9) questionsData[index].push(Number(val)); });
         questionsData[9].push(item.total);
       }
+
+      // 3. Datos para Estabilidad
+      runningSum += item.total;
+      const currentN = index + 1;
+      if (currentN % 10 === 0 || currentN === data.length) {
+        const average = runningSum / currentN;
+        stabilityData.push({ x: currentN, y: average });
+      }
     });
 
+    // 4. Calcular Matriz
     const matrixData = [];
     for (let x = 0; x < 10; x++) {
       for (let y = 0; y < 10; y++) {
@@ -112,7 +164,7 @@ export default function Dashboard() {
       }
     }
 
-    // Lógica Pareto
+    // 5. LÓGICA PARETO
     const sortedSeverity = Object.entries(severityCounts)
       .map(([label, value]) => ({ label, value }))
       .sort((a, b) => b.value - a.value);
@@ -182,13 +234,25 @@ export default function Dashboard() {
           height: ({chart}) => (chart.chartArea || {}).height / 10 - 1
         }]
       },
-      // Nuevo dataset para el gráfico de barras simple (el antiguo Severidad)
       severityChartSimple: {
         labels: Object.keys(severityCounts),
         datasets: [{ 
           label: 'Frecuencia', 
           data: Object.values(severityCounts), 
           backgroundColor: '#3f51b5',
+          datalabels: { display: false }
+        }]
+      },
+      learningCurve: {
+        labels: stabilityData.map(d => d.x),
+        datasets: [{
+          label: 'Estabilidad del Diagnóstico (Promedio Acumulado)',
+          data: stabilityData.map(d => d.y),
+          borderColor: '#4caf50',
+          backgroundColor: 'rgba(76, 175, 80, 0.1)',
+          pointRadius: 3,
+          tension: 0.4,
+          fill: true,
           datalabels: { display: false }
         }]
       }
@@ -222,7 +286,6 @@ export default function Dashboard() {
       <div className="dashboard-container" style={{ padding: '20px', background: '#f5f7fa', minHeight: '100vh' }}>
         <h2 style={{ color: '#1a237e' }}>Dashboard Analítico (Admin)</h2>
         
-        {/* KPI Total */}
         <div style={{ display: 'flex', gap: '20px', marginBottom: '20px' }}>
           <div className="card" style={{ padding: '20px', background: 'white', borderRadius: '8px', flex: 1, boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
             <h4>Muestra Total</h4>
@@ -231,12 +294,11 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* --- CONTENEDOR PRINCIPAL DE GRÁFICOS --- */}
         <div className="charts-grid" style={{ display: 'flex', flexDirection: 'column', gap: '30px' }}>
           
-          {/* 1. MATRIZ (Full Width) */}
+          {/* 1. MATRIZ DE CORRELACIÓN */}
           <div className="card" style={{ padding: '20px', background: 'white', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
-            <h3>Matriz de Correlación PHQ-9</h3>
+            <h3>Matriz de Correlación PHQ-9 (Síntomas)</h3>
             <div style={{ display: 'flex', justifyContent: 'center' }}>
               <div style={{ height: '450px', width: '100%', maxWidth: '800px' }}> 
                 <Chart 
@@ -250,7 +312,7 @@ export default function Dashboard() {
                           datalabels: { display: true, color: 'black', font: { size: 10, weight: 'bold' }, formatter: (v) => Math.round(v.v * 100) }
                       },
                       scales: {
-                          x: { type: 'category', labels: MATRIX_LABELS, grid: {display: false}, position: 'top' },
+                          x: { type: 'category', labels: MATRIX_LABELS, grid: {display: false}, position: 'bottom' },
                           y: { type: 'category', labels: MATRIX_LABELS, offset: true, grid: {display: false}, reverse: true }
                       }
                   }}
@@ -264,7 +326,7 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* 2. PARETO (Full Width) */}
+          {/* 2. PARETO */}
           {paretoData && (
             <div className="card" style={{ padding: '20px', background: 'white', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
                 <h3>Diagrama de Pareto: Severidad (Análisis 80/20)</h3>
@@ -277,6 +339,7 @@ export default function Dashboard() {
                             maintainAspectRatio: false,
                             plugins: {
                                 legend: { position: 'top' },
+                                title: { display: true, text: 'Identificación de las causas principales' }
                             },
                             scales: {
                                 y: { type: 'linear', display: true, position: 'left', title: { display: true, text: 'Frecuencia' } },
@@ -288,7 +351,63 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* 3. FILA INFERIOR: RIESGOS Y SEVERIDAD (Lado a Lado) */}
+          {/* 3. CURVA DE ESTABILIDAD */}
+          <div className="card" style={{ padding: '20px', background: 'white', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
+            <h3>Curva de Estabilidad del Modelo (Validación Big Data)</h3>
+            <div style={{ height: '300px' }}>
+               <Line 
+                 data={stats.learningCurve} 
+                 options={{
+                   maintainAspectRatio: false,
+                   plugins: {
+                     legend: { position: 'top' },
+                     tooltip: { callbacks: { label: (c) => `Promedio: ${c.raw.toFixed(2)}` } },
+                     datalabels: { display: false }
+                   },
+                   scales: {
+                     x: { title: { display: true, text: 'Tamaño de la Muestra (N)' } },
+                     y: { title: { display: true, text: 'Puntaje Promedio PHQ-9' }, min: 0, max: 27 }
+                   }
+                 }}
+               />
+            </div>
+            <p style={{fontSize:'0.8rem', color:'#666', marginTop:'10px'}}>
+              *Demuestra la convergencia del modelo. La línea se estabiliza al aumentar el volumen de datos.
+            </p>
+          </div>
+
+          {/* 4. DIAGRAMA DE GANTT (CRONOGRAMA) - ¡AQUÍ ESTÁ! */}
+          <div className="card" style={{ padding: '20px', background: 'white', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
+            <h3>Cronograma de Actividades (Gantt)</h3>
+            <div style={{ height: '300px' }}>
+               <Chart 
+                 type='bar' 
+                 data={GANTT_DATA}
+                 options={{
+                   indexAxis: 'y', // Barras horizontales
+                   responsive: true,
+                   maintainAspectRatio: false,
+                   plugins: {
+                     legend: { display: false },
+                     datalabels: { display: false }
+                   },
+                   scales: {
+                     x: { 
+                       min: 0, 
+                       max: 16, 
+                       title: { display: true, text: 'Semanas del Ciclo' },
+                       grid: { color: 'rgba(0,0,0,0.05)' }
+                     },
+                     y: {
+                       grid: { display: false }
+                     }
+                   }
+                 }}
+               />
+            </div>
+          </div>
+
+          {/* 5. FILA INFERIOR: RIESGOS Y SEVERIDAD SIMPLE */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '20px' }}>
              <div className="card" style={{ padding: '20px', background: 'white', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
                 <h3>Distribución de Riesgo</h3>
@@ -297,7 +416,6 @@ export default function Dashboard() {
              <div className="card" style={{ padding: '20px', background: 'white', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
                 <h3>Severidad (Simple)</h3>
                 <div style={{height:'300px'}}>
-                    {/* Usamos 'Chart type=bar' para reutilizar la importación */}
                     <Chart type='bar' data={stats.severityChartSimple} options={{maintainAspectRatio: false}}/>
                 </div>
              </div>

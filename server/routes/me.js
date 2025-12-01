@@ -1,56 +1,48 @@
 const express = require('express');
-const { query } = require('../db');
-const auth = require('../middleware/auth');
-
 const router = express.Router();
+const auth = require('../middleware/auth');
+const { query } = require('../db'); // Asegúrate que esta ruta sea correcta
 
+// --- 1. OBTENER MI PERFIL ---
+router.get('/', auth, async (req, res) => {
+  try {
+    const user = await query('SELECT id, email, name, role FROM users WHERE id = ?', [req.user.id]);
+    if (!user.length) return res.status(404).json({ error: 'Usuario no encontrado' });
+    res.json(user[0]);
+  } catch (e) {
+    console.error("Error en /api/me:", e);
+    res.status(500).json({ error: 'Error del servidor' });
+  }
+});
+
+// --- 2. OBTENER MI HISTORIAL (ESTA ES LA QUE FALLABA) ---
+/**
+ * @route   GET /api/me/responses
+ * @desc    Devuelve todas las encuestas que YO he respondido
+ */
 router.get('/responses', auth, async (req, res) => {
   try {
-    const rows = await query(
-      'SELECT id, instrument, total, severity, created_at FROM responses WHERE user_id = ? ORDER BY created_at DESC',
-      [req.user.id]
+    const userId = req.user.id;
+    console.log(`🔍 [DEBUG] Buscando historial para usuario ID: ${userId}`);
+
+    // Consulta SQL para traer mis respuestas ordenadas por fecha
+    const history = await query(
+      `SELECT id, instrument, total, severity, risk_level, ts 
+       FROM responses 
+       WHERE user_id = ? 
+       ORDER BY ts DESC`,
+      [userId]
     );
-    // Map to frontend shape
-    const data = rows.map(r => ({
-      id: r.id,
-      type: instrumentToKey(r.instrument),
-      score: r.total,
-      severity: r.severity,
-      created_at: r.created_at
-    }));
-    res.json(data);
+    
+    console.log(`✅ [DEBUG] Se encontraron ${history.length} registros.`);
+    
+    // Importante: Devolver un array vacío [] si no hay datos, no null.
+    res.json(history || []);
+
   } catch (e) {
-    res.status(500).json({ error: 'Error del servidor' });
+    console.error("❌ [DEBUG] Error en /api/me/responses:", e.message);
+    res.status(500).json({ error: 'Error al obtener historial' });
   }
 });
-
-router.get('/summary', auth, async (req, res) => {
-  try {
-    const rows = await query(
-      `SELECT instrument, total, severity, created_at
-       FROM v_latest_response_per_instrument
-       WHERE user_id = ?
-       ORDER BY instrument`,
-      [req.user.id]
-    );
-    const latest = rows.map(r => ({
-      type: instrumentToKey(r.instrument),
-      score: r.total,
-      severity: r.severity,
-      created_at: r.created_at
-    }));
-    res.json({ latest });
-  } catch (e) {
-    res.status(500).json({ error: 'Error del servidor' });
-  }
-});
-
-function instrumentToKey(instrument) {
-  const s = (instrument || '').toLowerCase();
-  if (s.includes('phq')) return 'phq9';
-  if (s.includes('madrs')) return 'madrs';
-  if (s.includes('beck')) return 'beck';
-  return s;
-}
 
 module.exports = router;
