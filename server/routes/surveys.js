@@ -1,6 +1,7 @@
 const express = require('express');
 const { query } = require('../db');
 const auth = require('../middleware/auth');
+const admin = require('../middleware/admin')
 const { scoreByType } = require('../utils/scoring');
 const { getQuestions } = require('../utils/questions');
 const { predictRisk} = require('../utils/prediction')
@@ -83,4 +84,32 @@ router.post('/:type/submit', auth, async (req, res) => {
   }
 });
 
-module.exports = router; 
+module.exports = router;
+
+/**
+ * @route
+ * @desc
+ * @access
+ */
+router.get('/admin/all-responses', [auth, admin], async (req, res) =>{
+  try{
+    const allData = await query(`
+      SELECT
+      r.id,
+      r.instrument,
+      r.total,
+      r.severity,
+      r.risk_Level,
+      r.ts,
+      r.answers,
+      u.email
+      FROM responses r 
+      JOIN users u ON r.user_id = u.id
+      ORDER BY r.ts DESC
+    `);
+    res.json(allData)
+  }catch (e) {
+    console.error(e.message);
+    res.status(500).json({error: 'Error del servidor al obtener las estadisticas'});
+  }
+});

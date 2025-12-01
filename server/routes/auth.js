@@ -25,12 +25,12 @@ router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'Email y contraseña requeridos' });
-    const rows = await query('SELECT id, password_hash FROM users WHERE email = ?', [email]);
+    const rows = await query('SELECT id, password_hash, role FROM users WHERE email = ?', [email]);
     if (!rows.length) return res.status(401).json({ error: 'Credenciales inválidas' });
     const user = rows[0];
     const ok = await bcrypt.compare(password, user.password_hash);
     if (!ok) return res.status(401).json({ error: 'Credenciales inválidas' });
-    const token = jwt.sign({ id: user.id, email }, process.env.JWT_SECRET || 'devsecret', { expiresIn: '7d' });
+    const token = jwt.sign({ id: user.id, email, role: user.role }, process.env.JWT_SECRET || 'devsecret', { expiresIn: '7d' });
     res.json({ token });
   } catch (e) {
     res.status(500).json({ error: 'Error del servidor' });
